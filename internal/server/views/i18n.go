@@ -523,6 +523,7 @@ var en = map[string]string{
 	"quota.caches":  "Plan %q allows at most %d caches.",
 	"quota.members": "Plan %q allows at most %d members.",
 	"quota.storage": "Storage quota reached: %s of %s on plan %q. Pushes are paused.",
+	"quota.unknown": "Could not check storage usage on plan %q. Pushes are paused.",
 
 	// transactional email (subject, then body)
 	"mail.pendingsub":   "Registration received",

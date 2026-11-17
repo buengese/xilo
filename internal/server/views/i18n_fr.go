@@ -397,6 +397,7 @@ var fr = map[string]string{
 	"quota.caches":  "Le forfait %q autorise au plus %d caches.",
 	"quota.members": "Le forfait %q autorise au plus %d membres.",
 	"quota.storage": "Quota de stockage atteint : %s sur %s pour le forfait %q. Les envois sont suspendus.",
+	"quota.unknown": "Impossible de vérifier l'utilisation du stockage pour le forfait %q. Les envois sont suspendus.",
 
 	// email
 	"mail.pendingsub":   "Inscription reçue",

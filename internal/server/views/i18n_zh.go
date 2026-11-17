@@ -397,6 +397,7 @@ var zh = map[string]string{
 	"quota.caches":  "套餐 %q 最多允许 %d 个缓存。",
 	"quota.members": "套餐 %q 最多允许 %d 位成员。",
 	"quota.storage": "已达存储配额：套餐 %[3]q 下已用 %[1]s，共 %[2]s。上传已暂停。",
+	"quota.unknown": "无法核对套餐 %q 的存储用量。上传已暂停。",
 
 	// email
 	"mail.pendingsub":   "已收到注册申请",

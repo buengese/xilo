@@ -402,7 +402,11 @@ func (s *Server) checkStorageQuota(ctx context.Context, c *store.Cache) error {
 	}
 	used, err := s.db.AccountLogicalBytes(acc.ID)
 	if err != nil {
-		return nil
+		// Fail closed: a usage figure that cannot be computed (an overflowing
+		// SUM, say) is not a figure under the cap, or one bad row would lift
+		// the account's quota for good.
+		log.Printf("storage quota: account %d: %v", acc.ID, err)
+		return errors.New(views.Tf(ctx, "quota.unknown", plan.Name))
 	}
 	if used >= plan.MaxStorage {
 		return errors.New(views.Tf(ctx, "quota.storage", humanBytes(used), humanBytes(plan.MaxStorage), plan.Name))

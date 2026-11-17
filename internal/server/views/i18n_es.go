@@ -397,6 +397,7 @@ var es = map[string]string{
 	"quota.caches":  "El plan %q permite como máximo %d cachés.",
 	"quota.members": "El plan %q permite como máximo %d miembros.",
 	"quota.storage": "Cuota de almacenamiento alcanzada: %s de %s en el plan %q. Las subidas están en pausa.",
+	"quota.unknown": "No se pudo comprobar el uso de almacenamiento del plan %q. Las subidas están en pausa.",
 
 	// email
 	"mail.pendingsub":   "Registro recibido",

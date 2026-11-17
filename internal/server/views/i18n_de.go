@@ -397,6 +397,7 @@ var de = map[string]string{
 	"quota.caches":  "Tarif %q erlaubt höchstens %d Caches.",
 	"quota.members": "Tarif %q erlaubt höchstens %d Mitglieder.",
 	"quota.storage": "Speicherkontingent erreicht: %s von %s im Tarif %q. Uploads sind pausiert.",
+	"quota.unknown": "Speicherbelegung im Tarif %q konnte nicht geprüft werden. Uploads sind pausiert.",
 
 	// email
 	"mail.pendingsub":   "Registrierung eingegangen",

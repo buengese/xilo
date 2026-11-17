@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"sync"
 	"time"
@@ -24,6 +23,12 @@ import (
 // maxJSONBody caps hash-list request bodies (get-missing-*, put-path) to guard
 // against memory-exhaustion; a hash is ~64 bytes so this holds ~150k of them.
 const maxJSONBody = 16 << 20
+
+// maxNarSize is the largest NarSize put-path accepts (1 TiB). The quota
+// currency is SUM(nar_size) over an account's paths, an int64 on both
+// backends, so a per-path ceiling is what keeps that sum from overflowing:
+// at this size it takes 2^23 maximal paths to reach 2^63.
+const maxNarSize = 1 << 40
 
 func timeNow() int64 { return time.Now().Unix() }
 
@@ -332,11 +337,12 @@ func (s *Server) handlePutPath(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	// A NarSize past MaxInt64 wraps negative when summed for quota accounting
-	// (stored as int64), so an over-quota push could slip through. Reject it
+	// NarSize is summed for quota accounting (stored as int64): a value past
+	// MaxInt64 wraps negative, and a few near it overflow the sum, so the
+	// account's usage stops being computable. Reject anything over maxNarSize
 	// here unconditionally — the reassembly check below is skippable, this is
-	// not. No real NAR approaches 2^63 bytes.
-	if req.NarSize > math.MaxInt64 {
+	// not. No real NAR approaches a terabyte.
+	if req.NarSize > maxNarSize {
 		http.Error(w, "narSize too large", http.StatusBadRequest)
 		return
 	}
@@ -396,12 +402,14 @@ func (s *Server) handlePutPath(w http.ResponseWriter, r *http.Request) {
 	// tenant's chunk hashes and reading their private bytes. Never skip it on
 	// an instance anyone can sign up to, regardless of SkipUploadVerify.
 	if s.cfg.SelfService || !s.cfg.Security.SkipUploadVerify {
-		// A chunk list already proven to hash to this NarHash on this backend
-		// cannot stop hashing to it, so the re-read is skippable — but the
+		// A chunk list already proven to hash to this NarHash and sum to this
+		// NarSize on this backend cannot stop doing so (the size is in the key:
+		// a hit must never accept a size reassembly did not check, since it is
+		// what storage quotas count), so the re-read is skippable — but the
 		// blobs behind it can still go missing, and the reassembly stream is
 		// what would have noticed. Confirm they exist (metadata only, no bytes)
 		// and fall through to the full check if anything is gone.
-		vk := verifyKey(c.Storage, narHash, req.Chunks)
+		vk := verifyKey(c.Storage, narHash, req.NarSize, req.Chunks)
 		verified := false
 		if s.vfCache.has(vk) {
 			if err := s.blobsPresent(r.Context(), c.Storage, req.Chunks); err == nil {

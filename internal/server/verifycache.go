@@ -3,19 +3,23 @@ package server
 import (
 	"container/list"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"sync"
 )
 
 // verifyCache remembers chunk lists that already reassembled to their claimed
-// NarHash. put-path's reassembly check streams every referenced chunk out of
+// NarHash and NarSize. put-path's reassembly check streams every referenced chunk out of
 // the blob store — on S3 that is the whole NAR downloaded again — and it is
 // pure repeated work whenever the same path is registered twice: a re-push
 // (upsert), a push to a second cache on the same backend, or the pessimistic
 // retry after a 409.
 //
 // What it caches is an immutable arithmetic fact ("these chunk hashes, in this
-// order, hash to this NarHash"), so entries never go stale and need no TTL.
+// order, hash to this NarHash and add up to this NarSize"), so entries never go
+// stale and need no TTL. The size is part of the fact on purpose: reassembly is
+// the only place a client's NarSize is checked, and it is what plan storage and
+// egress are metered by, so a hit must never accept a size it did not prove.
 // Crucially it does NOT stand in for the presence check: put-path re-stamps and
 // re-queries the chunks on every call, before consulting this, so a chunk swept
 // since the last verify is still caught.
@@ -40,12 +44,13 @@ func newVerifyCache(max int) *verifyCache {
 // verifyKey folds the inputs into one short key. Hashed rather than
 // concatenated: a chunk list can be thousands of hashes, and the map would
 // otherwise retain megabytes per entry.
-func verifyKey(storage, narHash string, chunks []string) string {
+func verifyKey(storage, narHash string, narSize uint64, chunks []string) string {
 	h := sha256.New()
 	h.Write([]byte(storage))
 	h.Write([]byte{0})
 	h.Write([]byte(narHash))
 	h.Write([]byte{0})
+	h.Write(binary.BigEndian.AppendUint64(nil, narSize))
 	// Hashed line by line through one scratch buffer: a chunk list can run
 	// to thousands of hashes, and joining it first would copy every byte of
 	// it just to feed the digest.

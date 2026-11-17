@@ -1,13 +1,18 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"math"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stubbedev/xilo/internal/api"
+	"github.com/stubbedev/xilo/internal/config"
 	"github.com/stubbedev/xilo/internal/store"
 )
 
@@ -107,5 +112,80 @@ func TestEgressRollup(t *testing.T) {
 	month := time.Now().UTC().Format("2006-01")
 	if got := db.AccountEgress(acc.ID, month); got != int64(len(data)) {
 		t.Fatalf("egress = %d want %d", got, len(data))
+	}
+}
+
+// TestStorageQuotaFailsClosed pins what happens when an account's usage cannot
+// be computed: pushes are refused, not waved through as if there were no cap.
+// Two NarSizes at MaxInt64 (rows that predate the put-path ceiling) overflow
+// SUM(nar_size), which used to read as "no limit" and lift the quota for good.
+func TestStorageQuotaFailsClosed(t *testing.T) {
+	_, db, ts := newTestServer(t, true)
+	c, err := db.CreateCache("default", "q", true, 40)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := db.CreatePlan(&store.Plan{Name: "big", MaxStorage: 1 << 62})
+	if err != nil {
+		t.Fatal(err)
+	}
+	acc, err := db.GetAccount("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetAccountPlan(acc.ID, plan.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []string{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"} {
+		if err := db.PutPath(c.ID, h, &store.Path{
+			StorePath: "/nix/store/" + h + "-huge", NarHash: "sha256:" + strings.Repeat("0", 52),
+			NarSize: math.MaxInt64,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.AccountLogicalBytes(acc.ID); err == nil {
+		t.Fatal("precondition: the usage sum was expected to overflow")
+	}
+
+	body, _ := json.Marshal(api.MissingReq{Hashes: []string{"cccccccccccccccccccccccccccccccc"}})
+	resp, err := http.Post(ts.URL+"/c/default/q/api/get-missing-paths", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden || !strings.Contains(string(msg), "Could not check storage usage") {
+		t.Fatalf("get-missing-paths with unreadable usage → %d %q, want 403 + quota message", resp.StatusCode, msg)
+	}
+}
+
+// TestPutPathNarSizeCeiling pins the per-path NarSize ceiling that keeps the
+// quota sum from overflowing. It runs with verification off, the one setting
+// where the claimed size is never checked against the bytes, so the ceiling is
+// the only thing deciding.
+func TestPutPathNarSizeCeiling(t *testing.T) {
+	_, db, ts := newTestServerCfg(t, func(c *config.Config) { c.Security.SkipUploadVerify = true })
+	db.CreateCache("default", "c", true, 40)
+	data := []byte("whatever")
+	ch, _, _ := fakeNar(data)
+	put(t, ts, "/c/default/c/api/chunk/"+ch, data, "").Body.Close()
+
+	for _, tc := range []struct {
+		hash string
+		size uint64
+		want int
+	}{
+		{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", maxNarSize, http.StatusOK},
+		{"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", maxNarSize + 1, http.StatusBadRequest},
+	} {
+		body, _ := json.Marshal(api.PathReq{
+			StorePath: "/nix/store/" + tc.hash + "-x",
+			NarHash:   "sha256:" + strings.Repeat("0", 52),
+			NarSize:   tc.size, Chunks: []string{ch},
+		})
+		if r := put(t, ts, "/c/default/c/api/path", body, ""); r.StatusCode != tc.want {
+			t.Errorf("narSize %d → %d want %d", tc.size, r.StatusCode, tc.want)
+		}
 	}
 }

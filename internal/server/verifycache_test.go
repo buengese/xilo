@@ -177,18 +177,42 @@ func TestVerifyCacheStillCatchesLostBlobs(t *testing.T) {
 	}
 }
 
+// A hit vouches for the size reassembly measured, not for whatever size the
+// next request claims: NarSize is what plan storage and egress are metered by,
+// so re-registering a verified chunk list as 0 bytes would zero the account's
+// usage. A different size must miss, re-verify, and be refused as it would be
+// on a cold cache.
+func TestVerifyCacheRejectsDifferentNarSize(t *testing.T) {
+	s, db, ts, _ := newCountingServer(t)
+	if _, err := db.CreateCache("default", "one", true, 40); err != nil {
+		t.Fatal(err)
+	}
+	parts := [][]byte{bytes.Repeat([]byte("a"), 4096), bytes.Repeat([]byte("b"), 4096)}
+	chunks, narHash, narSize := putChunks(t, ts, "one", parts)
+	if code := putPathReq(t, ts, "one", h32, chunks, narHash, narSize); code != 200 {
+		t.Fatalf("first put-path → %d", code)
+	}
+	if code := putPathReq(t, ts, "one", h32, chunks, narHash, 0); code != 400 {
+		t.Fatalf("re-push with narSize 0 (real %d) → %d, want 400", narSize, code)
+	}
+	if n := s.metrics.verifySkipped.Load(); n != 0 {
+		t.Fatalf("verifySkipped = %d; a wrong-size push must not skip reassembly", n)
+	}
+}
+
 func TestVerifyKeyDistinguishesInputs(t *testing.T) {
 	chunks := []string{"aa", "bb"}
-	base := verifyKey("default", "sha256:x", chunks)
-	if base != verifyKey("default", "sha256:x", chunks) {
+	base := verifyKey("default", "sha256:x", 42, chunks)
+	if base != verifyKey("default", "sha256:x", 42, chunks) {
 		t.Fatal("verifyKey is not stable")
 	}
 	for name, k := range map[string]string{
-		"storage":     verifyKey("other", "sha256:x", chunks),
-		"narHash":     verifyKey("default", "sha256:y", chunks),
-		"chunk order": verifyKey("default", "sha256:x", []string{"bb", "aa"}),
-		"chunk set":   verifyKey("default", "sha256:x", []string{"aa", "bb", "cc"}),
-		"empty":       verifyKey("default", "sha256:x", nil),
+		"storage":     verifyKey("other", "sha256:x", 42, chunks),
+		"narHash":     verifyKey("default", "sha256:y", 42, chunks),
+		"narSize":     verifyKey("default", "sha256:x", 0, chunks),
+		"chunk order": verifyKey("default", "sha256:x", 42, []string{"bb", "aa"}),
+		"chunk set":   verifyKey("default", "sha256:x", 42, []string{"aa", "bb", "cc"}),
+		"empty":       verifyKey("default", "sha256:x", 42, nil),
 	} {
 		if k == base {
 			t.Fatalf("verifyKey collides on %s", name)

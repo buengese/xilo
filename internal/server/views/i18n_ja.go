@@ -397,6 +397,7 @@ var ja = map[string]string{
 	"quota.caches":  "プラン %q のキャッシュ数の上限は %d 個です。",
 	"quota.members": "プラン %q のメンバー数の上限は %d 人です。",
 	"quota.storage": "ストレージ上限に達しました: プラン %[3]q で %[1]s / %[2]s。アップロードは停止中です。",
+	"quota.unknown": "プラン %q のストレージ使用量を確認できませんでした。アップロードは停止中です。",
 
 	// email
 	"mail.pendingsub":   "登録を受け付けました",
