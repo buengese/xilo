@@ -657,7 +657,15 @@ func (s *Server) handleLoginCode(w http.ResponseWriter, r *http.Request) {
 		views.Login(false, s.hasPasskeys(), s.registrationOpen(), views.Flash{Msg: views.T(r.Context(), "flash.loginexpired")}).Render(r.Context(), w)
 		return
 	}
-	secret, on, _ := s.db.UserTOTP(uid)
+	secret, on, err := s.db.UserTOTP(uid)
+	if err != nil {
+		// Fail closed: an unreadable secret (e.g. database.salt changed) or a
+		// failed lookup must never grant a session or verify against an
+		// empty key. Burn the ticket; the user re-does the password step.
+		s.sess.consumePending(pid)
+		uiError(w, r, err)
+		return
+	}
 	if !on {
 		// 2FA turned off mid-flight; the password step already passed.
 		s.sess.consumePending(pid)

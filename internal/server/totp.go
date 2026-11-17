@@ -36,8 +36,12 @@ func totpCode(secret []byte, t time.Time) string {
 	return fmt.Sprintf("%06d", code)
 }
 
-// totpVerify accepts a code within ±1 step (clock skew).
+// totpVerify accepts a code within ±1 step (clock skew). An empty secret
+// verifies nothing: HMAC under an empty key is computable from the clock alone.
 func totpVerify(secret []byte, code string, t time.Time) bool {
+	if len(secret) == 0 {
+		return false
+	}
 	code = strings.TrimSpace(code)
 	if len(code) != 6 {
 		return false

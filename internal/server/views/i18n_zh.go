@@ -364,6 +364,8 @@ var zh = map[string]string{
 	"set.passkeys":   "通行密钥",
 	"pk.removetitle": "移除通行密钥？",
 	"pk.removemsg":   "“%s”将无法再用于登录。",
+	"pk.addtitle":    "添加通行密钥",
+	"pk.addhint":     "通行密钥无需密码即可登录。请先确认是你本人。",
 
 	// confirmations
 	"confirm.rotate": "旧密钥会立即失效。请在各处更新 trusted-public-keys。",

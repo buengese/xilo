@@ -36,9 +36,12 @@ templ webauthnScript() {
 			}
 			return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 		}
-		async function xiloPasskeyRegister() {
+		// form is the step-up dialog's: the server opens no ceremony without the
+		// current password (and the two-factor code, when 2FA is on).
+		async function xiloPasskeyRegister(form) {
 			var res = await fetch('/admin/passkeys/register/begin', {
 				method: 'POST',
+				body: new URLSearchParams(new FormData(form)),
 			});
 			if (!res.ok) {
 				xiloToast('error', await res.text());

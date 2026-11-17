@@ -579,6 +579,8 @@ var en = map[string]string{
 	"set.passkeys":   "Passkeys",
 	"pk.removetitle": "Remove passkey?",
 	"pk.removemsg":   "“%s” will no longer be able to sign in.",
+	"pk.addtitle":    "Add passkey",
+	"pk.addhint":     "A passkey signs in without your password. Confirm it is you first.",
 
 	// confirmations
 	"confirm.rotate": "The old key stops verifying immediately. Update trusted-public-keys everywhere.",

@@ -364,6 +364,8 @@ var fr = map[string]string{
 	"set.passkeys":   "Passkeys",
 	"pk.removetitle": "Supprimer la passkey ?",
 	"pk.removemsg":   "« %s » ne pourra plus servir à se connecter.",
+	"pk.addtitle":    "Ajouter une passkey",
+	"pk.addhint":     "Une passkey vous connecte sans mot de passe. Confirmez d'abord votre identité.",
 
 	// confirmations
 	"confirm.rotate": "L'ancienne clé cesse immédiatement de vérifier. Mettez à jour trusted-public-keys partout.",

@@ -364,6 +364,8 @@ var ja = map[string]string{
 	"set.passkeys":   "パスキー",
 	"pk.removetitle": "パスキーを削除しますか？",
 	"pk.removemsg":   "「%s」ではサインインできなくなります。",
+	"pk.addtitle":    "パスキーを追加",
+	"pk.addhint":     "パスキーはパスワードなしでサインインできます。先に本人確認をしてください。",
 
 	// confirmations
 	"confirm.rotate": "古い鍵は直ちに検証に使えなくなります。すべての環境で trusted-public-keys を更新してください。",

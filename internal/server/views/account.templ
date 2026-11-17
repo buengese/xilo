@@ -65,10 +65,10 @@ templ Account(d AccountData) {
 					}
 				</div>
 			}
-			@ListSection(T(ctx, "set.passkeys"), sectionAction(len(d.Passkeys) > 0, passkeyAddButton())) {
+			@ListSection(T(ctx, "set.passkeys"), sectionAction(len(d.Passkeys) > 0, passkeyAddDialog(d.TOTPEnabled))) {
 				if len(d.Passkeys) == 0 {
 					@EmptyState("fingerprint-pattern", T(ctx, "empty.none")) {
-						@passkeyAddButton()
+						@passkeyAddDialog(d.TOTPEnabled)
 					}
 				} else {
 					<div class="divide-y border-y">
@@ -210,11 +210,41 @@ templ totpEnrollDialog() {
 	}
 }
 
-// passkeyAddButton starts the browser's own passkey ceremony.
-templ passkeyAddButton() {
-	@button.Button(button.Props{Size: button.SizeSm, Variant: button.VariantOutline, Type: button.TypeButton, Attributes: templ.Attributes{"onclick": "xiloPasskeyRegister()"}}) {
-		@Icon("plus")
-		<span>{ T(ctx, "action.add") }</span>
+// passkeyAddDialog asks for the current password — and the two-factor code,
+// when 2FA is on — before the browser's own passkey ceremony starts. A passkey
+// signs in without either, so a session alone must not be able to add one.
+// Only one copy is ever on the page: the section header's when passkeys
+// exist, the empty state's when none do.
+templ passkeyAddDialog(totp bool) {
+	@dialog.Dialog(dialog.Props{ID: "dlg-passkey"}) {
+		@dialog.Trigger(dialog.TriggerProps{For: "dlg-passkey"}) {
+			@PlusButton(T(ctx, "action.add"))
+		}
+		@DialogBox(T(ctx, "pk.addtitle"), T(ctx, "pk.addhint"), false) {
+			<form class="mt-2 space-y-4" hx-boost="false" onsubmit="event.preventDefault(); xiloPasskeyRegister(this)">
+				@Field("passkey-current", T(ctx, "set.current")) {
+					@input.Input(input.Props{ID: "passkey-current", Name: "current", Type: input.TypePassword, Required: true, Attributes: templ.Attributes{"autocomplete": "current-password"}})
+				}
+				if totp {
+					@Field("passkey-code", T(ctx, "login.codetitle")) {
+						@inputotp.InputOTP(inputotp.Props{ID: "passkey-code", Name: "code"}) {
+							@inputotp.Group() {
+								@inputotp.Slot(inputotp.SlotProps{Index: 0})
+								@inputotp.Slot(inputotp.SlotProps{Index: 1})
+								@inputotp.Slot(inputotp.SlotProps{Index: 2})
+							}
+							@inputotp.Separator()
+							@inputotp.Group() {
+								@inputotp.Slot(inputotp.SlotProps{Index: 3})
+								@inputotp.Slot(inputotp.SlotProps{Index: 4})
+								@inputotp.Slot(inputotp.SlotProps{Index: 5})
+							}
+						}
+					}
+				}
+				@DialogFooter("dlg-passkey", "fingerprint-pattern", T(ctx, "action.add"))
+			</form>
+		}
 	}
 }
 

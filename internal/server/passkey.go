@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/stubbedev/xilo/internal/config"
 	"github.com/stubbedev/xilo/internal/server/views"
@@ -155,6 +156,12 @@ func (s *Server) passkeyName(u *store.User) string {
 	return u.Name + "@" + host
 }
 
+// maxWebAuthnBody caps the JSON a ceremony's finish step hands to go-webauthn,
+// which decodes whatever it is given into memory. An assertion is a few KB and
+// an attestation with a certificate chain tens of KB; login finish is
+// unauthenticated, so without this one request could exhaust the heap.
+const maxWebAuthnBody = 256 << 10
+
 func jsonOut(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(v)
@@ -168,6 +175,24 @@ func (s *Server) handlePasskeyRegisterBegin(w http.ResponseWriter, r *http.Reque
 	wan, err := s.webAuthn()
 	if err != nil {
 		uiError(w, r, err)
+		return
+	}
+	// Step-up: a passkey signs in on its own, skipping the password and the
+	// TOTP code, so adding one must prove both — as dropping 2FA and changing
+	// the password do. A borrowed/hijacked session alone must not be able to
+	// mint itself a permanent way back in. No ceremony is opened until this
+	// passes, and finish only accepts the ceremony opened here.
+	if bcrypt.CompareHashAndPassword([]byte(u.PassHash), []byte(r.FormValue("current"))) != nil {
+		uiFail(w, r, http.StatusForbidden, views.T(r.Context(), "flash.pwwrong"), nil)
+		return
+	}
+	secret, totpOn, err := s.db.UserTOTP(u.ID)
+	if err != nil {
+		uiError(w, r, err)
+		return
+	}
+	if totpOn && (len(secret) == 0 || !totpVerify(secret, r.FormValue("code"), time.Now())) {
+		uiFail(w, r, http.StatusForbidden, views.T(r.Context(), "flash.badcode"), nil)
 		return
 	}
 	user, err := s.loadUserPasskeys(u)
@@ -185,6 +210,7 @@ func (s *Server) handlePasskeyRegisterBegin(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handlePasskeyRegisterFinish(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxWebAuthnBody)
 	u := s.requireUser(w, r)
 	if u == nil {
 		return
@@ -276,6 +302,7 @@ func (s *Server) handlePasskeyLoginBegin(w http.ResponseWriter, r *http.Request)
 // still rests on the signature over the credential we looked up, not the
 // handle.
 func (s *Server) handlePasskeyLoginFinish(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxWebAuthnBody)
 	wan, err := s.webAuthn()
 	if err != nil {
 		uiError(w, r, err)

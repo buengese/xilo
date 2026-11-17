@@ -364,6 +364,8 @@ var es = map[string]string{
 	"set.passkeys":   "Passkeys",
 	"pk.removetitle": "¿Eliminar la passkey?",
 	"pk.removemsg":   "«%s» ya no podrá iniciar sesión.",
+	"pk.addtitle":    "Añadir passkey",
+	"pk.addhint":     "Una passkey inicia sesión sin tu contraseña. Confirma primero que eres tú.",
 
 	// confirmations
 	"confirm.rotate": "La clave antigua deja de verificar de inmediato. Actualiza trusted-public-keys en todas partes.",

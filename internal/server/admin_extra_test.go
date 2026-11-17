@@ -543,6 +543,59 @@ func TestLoginCodeAfterTOTPDisabledMidFlight(t *testing.T) {
 	resp.Body.Close()
 }
 
+// TestLoginCodeRefusedWhenTOTPSecretUnreadable pins the fail-closed second
+// step: a TOTP secret the store cannot decrypt (enrolled in plaintext, then
+// database.salt switched on) must refuse the login, never verify codes against
+// an empty HMAC key that anyone can compute from the clock.
+func TestLoginCodeRefusedWhenTOTPSecretUnreadable(t *testing.T) {
+	_, db, ts := newTestServerCfg(t, nil)
+	bootstrapAdmin(t, db)
+	uid := adminID(t, db)
+
+	// 2FA enrolled while the database has no salt stores the secret in
+	// plaintext; switching a salt on afterwards leaves it unsealable.
+	secret, err := newTOTPSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetUserTOTPSecret(uid, secret); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetUserTOTPEnabled(uid, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetSalt("s3cret"); err != nil {
+		t.Fatal(err)
+	}
+	if _, on, err := db.UserTOTP(uid); err == nil || !on {
+		t.Fatalf("precondition: UserTOTP on=%v err=%v, want enabled with a decrypt error", on, err)
+	}
+
+	jar, _ := cookiejar.New(nil)
+	c := &http.Client{Jar: jar}
+	resp, err := c.PostForm(ts.URL+"/admin/login", url.Values{"username": {"admin"}, "password": {adminPass}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := pendingRe.FindStringSubmatch(body(t, resp))
+	if m == nil {
+		t.Fatal("no pending ticket after the password step")
+	}
+	resp, err = c.PostForm(ts.URL+"/admin/login/code", url.Values{"pending": {m[1]}, "code": {totpCode(nil, time.Now())}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusInternalServerError || resp.Request.URL.Path == "/admin" {
+		t.Fatalf("empty-key code → %d at %s, want 500 and no session", resp.StatusCode, resp.Request.URL)
+	}
+	for _, ck := range jar.Cookies(resp.Request.URL) {
+		if ck.Name == sessionCookie {
+			t.Fatal("session cookie issued despite an unreadable totp secret")
+		}
+	}
+}
+
 func TestPasskeyEndpoints(t *testing.T) {
 	// webauthn requires a real-looking RP domain; the default test BaseURL
 	// ("http://example", no dot) fails relying-party validation.
@@ -558,8 +611,8 @@ func TestPasskeyEndpoints(t *testing.T) {
 
 	c := adminClient(t, ts)
 
-	// register begin returns creation options
-	resp, _ = c.PostForm(ts.URL+"/admin/passkeys/register/begin", nil)
+	// register begin (past the password step-up) returns creation options
+	resp, _ = c.PostForm(ts.URL+"/admin/passkeys/register/begin", url.Values{"current": {adminPass}})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("register begin → %d", resp.StatusCode)
 	}
@@ -610,6 +663,51 @@ func TestPasskeyEndpoints(t *testing.T) {
 	if len(after) != len(pks)-1 {
 		t.Fatalf("passkey delete: %d → %d", len(pks), len(after))
 	}
+}
+
+// TestPasskeyRegisterNeedsStepUp pins that a session alone cannot add a
+// passkey: a passkey signs in without the password or the TOTP code, so a
+// hijacked session that could register one would own the account for good.
+// Begin demands the current password (plus a valid code when 2FA is on), and
+// a refused begin opens no ceremony for finish to complete.
+func TestPasskeyRegisterNeedsStepUp(t *testing.T) {
+	_, db, ts := newTestServerCfg(t, func(cfg *config.Config) { cfg.BaseURL = "http://localhost:8080" })
+	bootstrapAdmin(t, db)
+	c := adminClient(t, ts)
+
+	check := func(what string, form url.Values, wantCode int, want string) {
+		t.Helper()
+		resp, err := c.PostForm(ts.URL+"/admin/passkeys/register/begin", form)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if b := body(t, resp); resp.StatusCode != wantCode || !strings.Contains(b, want) {
+			t.Fatalf("%s: register begin → %d %q, want %d %q", what, resp.StatusCode, b, wantCode, want)
+		}
+	}
+
+	check("session alone", nil, http.StatusForbidden, "password is incorrect")
+	// nothing to finish: the refused begin opened no ceremony
+	resp, _ := c.Post(ts.URL+"/admin/passkeys/register/finish", "application/json", strings.NewReader("{}"))
+	if b := body(t, resp); resp.StatusCode != http.StatusBadRequest || !strings.Contains(b, "expired") {
+		t.Fatalf("finish after refused begin → %d %q, want the expired refusal", resp.StatusCode, b)
+	}
+	check("password", url.Values{"current": {adminPass}}, http.StatusOK, "publicKey")
+
+	// with 2FA on, the password alone is no longer enough
+	uid := adminID(t, db)
+	secret, err := newTOTPSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetUserTOTPSecret(uid, secret); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetUserTOTPEnabled(uid, true); err != nil {
+		t.Fatal(err)
+	}
+	check("2FA, password only", url.Values{"current": {adminPass}}, http.StatusForbidden, "did not match")
+	check("2FA, password + code", url.Values{"current": {adminPass}, "code": {totpCode(secret, time.Now())}}, http.StatusOK, "publicKey")
 }
 
 func TestStatusPagesAndData(t *testing.T) {

@@ -32,6 +32,11 @@ func TestTOTPVerify(t *testing.T) {
 	if totpVerify(secret, "12", now) {
 		t.Error("short code should not verify")
 	}
+	// no secret → reject, or the code under an empty key, computable from the
+	// clock alone, would verify
+	if totpVerify(nil, totpCode(nil, now), now) {
+		t.Error("empty secret should not verify")
+	}
 }
 
 func TestTOTPURIAndSecret(t *testing.T) {
