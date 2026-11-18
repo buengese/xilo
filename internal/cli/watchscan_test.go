@@ -21,16 +21,7 @@ type scanHarness struct {
 func newScanHarness(t *testing.T) *scanHarness {
 	t.Helper()
 	dir := t.TempDir()
-	scan, err := newStoreScan(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := scan.Close(); err != nil {
-			t.Error(err)
-		}
-	})
-	return &scanHarness{t: t, dir: dir, scan: scan}
+	return &scanHarness{t: t, dir: dir, scan: newStoreScan(dir)}
 }
 
 func (h *scanHarness) touch(names ...string) {
@@ -126,7 +117,7 @@ func TestStoreScanReportsARebuiltPathAgain(t *testing.T) {
 	h.expect(h.rescan())
 	h.remove("pkg")
 	h.expect(h.rescan())
-	if n := h.scan.present.Len(); n != 0 {
+	if n := len(h.scan.present); n != 0 {
 		t.Fatalf("listing still holds %d names after the store emptied", n)
 	}
 	h.touch("pkg")
@@ -174,15 +165,7 @@ func BenchmarkStoreRescan(b *testing.B) {
 	for i := range names {
 		names[i] = fmt.Appendf(nil, "%032d-some-package-1.2.3", i)
 	}
-	scan, err := newStoreScan(b.TempDir())
-	if err != nil {
-		b.Fatal(err)
-	}
-	b.Cleanup(func() {
-		if err := scan.Close(); err != nil {
-			b.Error(err)
-		}
-	})
+	scan := newStoreScan(b.TempDir())
 	rescan := func() {
 		scan.begin()
 		for _, n := range names {
